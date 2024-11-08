@@ -91,7 +91,7 @@ print(note_counts)
 # Let's consider notes with lots of votes but did not meet the threshold
 # rename election day to something we understand
 
-ratings_data <- election_day
+ratings_data <- combined_election_day_data
 
 # Before we go further let's export everything, and upload to Github
 
