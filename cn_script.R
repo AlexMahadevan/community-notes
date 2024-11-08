@@ -98,6 +98,32 @@ ratings_data <- combined_election_day_data
 write_csv(ratings_data,"ratings_data.csv")
 write_csv(combined_data, "notes_and_status.csv")
 
+# Step 1: Summarize ratings data to get counts of "helpful", "not helpful", and total ratings for each noteId
+ratings_summary <- ratings_data %>%
+  group_by(noteId) %>%
+  summarize(
+    helpful_count = sum(helpfulnessLevel == "HELPFUL", na.rm = TRUE),
+    not_helpful_count = sum(helpfulnessLevel == "NOT_HELPFUL", na.rm = TRUE),
+    total_ratings = n()  # Count of all ratings
+  ) %>%
+  ungroup()
+
+# Step 2: Join the summarized ratings back to the combined_data
+combined_data <- combined_data %>%
+  left_join(ratings_summary, by = "noteId")
+  
+notes_status_ratings <- combined_data %>%   
+  arrange(desc(total_ratings))
+
+# export it
+
+write_csv(notes_status_ratings, "all_cn_data.csv")
+
+
+
+
+
+
 # Define thresholds for "highly helpful" and "highly not helpful" ratings
 threshold_helpful_ratings <- 10  # e.g., notes with at least 10 helpful ratings
 threshold_not_helpful_ratings <- 10  # e.g., notes with at least 10 not helpful ratings
