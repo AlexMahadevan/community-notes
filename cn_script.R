@@ -4,7 +4,7 @@ library(lubridate)
 library(data.table)
 library(ggplot2)
 
-setwd("/Users/alexmahadevan/r_projects/community_notes")
+## Load in the massive ratings files but filter for Election Day
 
 # Define a vector with paths to all rating files
 ratings_urls <- c(
@@ -34,8 +34,7 @@ end_time_est <- as.POSIXct("2024-11-05 23:59:59", tz = "America/New_York")
 start_time_utc_ms <- as.numeric(start_time_est) * 1000
 end_time_utc_ms <- as.numeric(end_time_est) * 1000
 
-
-# Initialize an empty list to store data from October 31
+# Initialize an empty list to store data from November 5
 election_day_data <- list()
 
 # Process each URL
@@ -74,31 +73,17 @@ notes_selected <- notes_data %>%
 combined_data <- note_status_data %>%
   left_join(notes_selected, by = "noteId")
 
-# Count total notes and helpful notes based on currentStatus
-note_counts <- note_status_data %>%
-  summarize(
-    total_notes = n(),
-    helpful_notes = sum(currentStatus == "CURRENTLY_RATED_HELPFUL", na.rm = TRUE)
-  )
-
-# Calculate the ratio of helpful notes
-note_counts <- note_counts %>%
-  mutate(helpful_ratio = helpful_notes / total_notes)
-
-# Display the results
-print(note_counts)
-
 # Let's consider notes with lots of votes but did not meet the threshold
-# rename election day to something we understand
 
+# Rename election day to something we understand
 ratings_data <- combined_election_day_data
 
-# Before we go further let's export everything, and upload to Github
+# Before we go further let's export everything
 
 write_csv(ratings_data,"ratings_data.csv")
 write_csv(combined_data, "notes_and_status.csv")
 
-# Step 1: Summarize ratings data to get counts of "helpful", "not helpful", and total ratings for each noteId
+# Summarize ratings data to get counts of "helpful", "not helpful", and total ratings for each noteId
 ratings_summary <- ratings_data %>%
   group_by(noteId) %>%
   summarize(
@@ -108,75 +93,59 @@ ratings_summary <- ratings_data %>%
   ) %>%
   ungroup()
 
-# Step 2: Join the summarized ratings back to the combined_data
+# Join the summarized ratings back to the combined_data
 combined_data <- combined_data %>%
   left_join(ratings_summary, by = "noteId")
   
 notes_status_ratings <- combined_data %>%   
   arrange(desc(total_ratings))
 
-# export it
+# Export our final data set
 
 write_csv(notes_status_ratings, "all_cn_data.csv")
 
+# How many helpful notes were there on election day?
 
-
-
-
-
-# Define thresholds for "highly helpful" and "highly not helpful" ratings
-threshold_helpful_ratings <- 10  # e.g., notes with at least 10 helpful ratings
-threshold_not_helpful_ratings <- 10  # e.g., notes with at least 10 not helpful ratings
-
-# Aggregate ratings to count "helpful" and "not helpful" ratings per note
-note_ratings_summary <- ratings_data %>%
-  group_by(noteId) %>%
+helpful_percentage <- notes_status_ratings %>%
   summarize(
-    helpful_count = sum(helpfulnessLevel == "HELPFUL"),
-    not_helpful_count = sum(helpfulnessLevel == "NOT_HELPFUL")
+    total_notes = n(),
+    helpful_notes = sum(currentStatus == "CURRENTLY_RATED_HELPFUL", na.rm = TRUE)
   ) %>%
-  ungroup()
+  mutate(helpful_percentage = (helpful_notes / total_notes) * 100)
 
-# Filter for notes that are highly rated as "helpful" or "not helpful"
-highly_helpful_notes <- note_ratings_summary %>%
-  filter(helpful_count >= threshold_helpful_ratings)
+# Display the result
+print(helpful_percentage$helpful_percentage)
 
-highly_not_helpful_notes <- note_ratings_summary %>%
-  filter(not_helpful_count >= threshold_not_helpful_ratings)
+# Get helpful notes
 
-# Join with notes and note status data to get details and current status
-highly_helpful_notes_with_status <- highly_helpful_notes %>%
-  left_join(notes_data, by = "noteId") %>%
-  left_join(note_status_data, by = "noteId")
+helpful_notes <- notes_status_ratings %>% 
+  filter(currentStatus == "CURRENTLY_RATED_HELPFUL")
 
-highly_not_helpful_notes_with_status <- highly_not_helpful_notes %>%
-  left_join(notes_data, by = "noteId") %>%
-  left_join(note_status_data, by = "noteId")
+# Look for notes that have lots of ratings but have not become public
 
-# Display results for both
-print("Highly Helpful Notes without 'Helpful' Status:")
-print(highly_helpful_notes_with_status %>%
-        filter(currentStatus != "CURRENTLY_RATED_HELPFUL"))
+# Define a threshold for "lots of helpful ratings"
+helpful_threshold <- 50  # Example: at least 10 helpful ratings
 
-print("Notes with High 'Not Helpful' Ratings:")
-print(highly_not_helpful_notes_with_status)
+# Filter notes that have lots of helpful ratings but are not currently rated as helpful
+notes_with_lots_of_helpful_not_marked_helpful <- combined_data %>%
+  filter(helpful_count >= helpful_threshold & currentStatus != "CURRENTLY_RATED_HELPFUL") %>% 
+  arrange(desc(helpful_count))
 
-#######
+# Display the filtered results
+print(notes_with_lots_of_helpful_not_marked_helpful)
 
-# Load necessary library
-library(dplyr)
-library(lubridate)
+# Let's look for coordinated behavior
 
-# Step 1: Convert createdAtMillis to POSIXct format for date-time manipulation
+# Convert createdAtMillis to POSIXct format for date-time manipulation
 ratings_data <- combined_election_day_data %>%
   mutate(ratingDateTime = as.POSIXct(createdAtMillis / 1000, origin = "1970-01-01"))
 
-# Define a shorter time window for grouping (e.g., 15 minutes)
-time_window <- 15  # in minutes
+# Define a shorter time window for grouping
+time_window <- 10  # in minutes
 
-# Step 2: Group by noteId and time window, and count "helpful" and "not helpful" ratings
+#  Group by noteId and time window, and count "helpful" and "not helpful" ratings
 coordinated_behavior_data <- ratings_data %>%
-  mutate(time_bin = floor_date(ratingDateTime, unit = "15 minutes")) %>%
+  mutate(time_bin = floor_date(ratingDateTime, unit = "10 minutes")) %>%
   group_by(noteId, time_bin) %>%
   summarize(
     helpful_count = sum(helpfulnessLevel == "HELPFUL"),
@@ -184,9 +153,9 @@ coordinated_behavior_data <- ratings_data %>%
   ) %>%
   ungroup()
 
-# Step 3: Define thresholds for flagging suspicious activity in a time window
-threshold_helpful_in_window <- 5   # e.g., 5 "helpful" ratings within 30 minutes
-threshold_not_helpful_in_window <- 5  # e.g., 5 "not helpful" ratings within 30 minutes
+# Define thresholds for flagging suspicious activity in a time window
+threshold_helpful_in_window <- 10  
+threshold_not_helpful_in_window <- 10  
 
 # Filter for notes with suspicious activity based on thresholds
 suspicious_helpful_activity <- coordinated_behavior_data %>%
@@ -195,16 +164,16 @@ suspicious_helpful_activity <- coordinated_behavior_data %>%
 suspicious_not_helpful_activity <- coordinated_behavior_data %>%
   filter(not_helpful_count >= threshold_not_helpful_in_window)
 
-
-# Step 4: Merge with notes data to get the note summary and tweet ID
+# Merge with notes data to get the note summary and tweet ID
 suspicious_helpful_activity_with_details <- suspicious_helpful_activity %>%
-  left_join(notes_data %>% select(noteId, summary, tweetId), by = "noteId")
+  left_join(notes_status_ratings, by = "noteId")
 
 suspicious_not_helpful_activity_with_details <- suspicious_not_helpful_activity %>%
   left_join(notes_data %>% select(noteId, summary, tweetId), by = "noteId")
 
+# Let's plot some weird notes
 
-note_ids_to_plot <- c("1853298766222111218", "1853547004162421172")  # Replace with actual IDs
+note_ids_to_plot <- c("1853897015752864227", "1853893990174892471")  # Replace with actual IDs
 
 # Filter data for the specified notes
 filtered_data <- combined_election_day_data %>%
@@ -231,19 +200,47 @@ cumulative_data <- filtered_data %>%
   ) %>%
   ungroup()
 
-# Plot cumulative "helpful" and "not helpful" ratings over time for each specified note
+# Let's plot a few notes that have suspicious ratings bursts
+
 ggplot(cumulative_data, aes(x = ratingDateTime)) +
-  geom_line(aes(y = helpful_cumulative, color = "Helpful"), size = 1) +
-  geom_line(aes(y = not_helpful_cumulative, color = "Not Helpful"), size = 1) +
-  geom_area(aes(y = helpful_cumulative, fill = "Helpful"), alpha = 0.2) +
-  geom_area(aes(y = not_helpful_cumulative, fill = "Not Helpful"), alpha = 0.2) +
-  scale_color_manual(values = c("green", "red")) +
-  scale_fill_manual(values = c("green", "red")) +
-  labs(title = "Cumulative Votes Over Time — Community Notes",
-       x = "Date/Time (UTC)",
-       y = "Votes",
-       color = "Ratings",
-       fill = "Ratings") +
+  # Lines and shaded areas for helpful and not helpful ratings
+  geom_line(aes(y = helpful_cumulative, color = "Helpful"), size = 1.2) +
+  geom_line(aes(y = not_helpful_cumulative, color = "Not Helpful"), size = 1.2) +
+  geom_area(aes(y = helpful_cumulative, fill = "Helpful"), alpha = 0.3) +
+  geom_area(aes(y = not_helpful_cumulative, fill = "Not Helpful"), alpha = 0.3) +
+  
+  # Custom colors for the lines and shaded areas using Teal and Coral
+  scale_color_manual(values = c("Helpful" = "#00796B", "Not Helpful" = "#FF6F61")) +
+  scale_fill_manual(values = c("Helpful" = "#00796B", "Not Helpful" = "#FF6F61")) +
+  
+  # Title, subtitle, and axis labels with styling
+  labs(
+    title = "Cumulative Ratings Over Time for Community Notes",
+    subtitle = "Tracking helpful and not helpful ratings to identify patterns",
+    x = "Date/Time (UTC)",
+    y = "Cumulative Ratings",
+    color = "Ratings Type",
+    fill = "Ratings Type"
+  ) +
+  
+  # Facet wrap by noteId to see each note's ratings individually
   facet_wrap(~ noteId, scales = "free_y") +
-  theme_minimal() +
-  theme(legend.position = "top")
+  
+  # Theme for a cleaner, more modern look
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.position = "top",
+    legend.title = element_text(face = "bold"),
+    panel.grid.major = element_line(color = "gray85"),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 14, face = "bold")
+  ) +
+  
+  # Customize the x-axis for clear date and time formatting
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M", date_breaks = "3 hours")
+
+# Those actually don't look to bad!
